@@ -1,0 +1,371 @@
+from tkinter import *
+from tkinter import messagebox
+
+
+# ================= HÀM ELGAMAL =================
+
+def tinh_luy_thua_mod(co_so, mu, mod):
+    ket_qua = 1
+    co_so %= mod
+
+    while mu > 0:
+        if mu % 2 == 1:
+            ket_qua = (ket_qua * co_so) % mod
+
+        co_so = (co_so * co_so) % mod
+        mu //= 2
+
+    return ket_qua
+
+
+def tim_nghich_dao_mod(a, m):
+    m0 = m
+    x0, x1 = 0, 1
+
+    if m == 1:
+        return 0
+
+    while a > 1:
+        q = a // m
+
+        t = m
+        m = a % m
+        a = t
+
+        t = x0
+        x0 = x1 - q * x0
+        x1 = t
+
+    if x1 < 0:
+        x1 += m0
+
+    return x1
+
+
+def bam_van_ban(van_ban, mod):
+    tong = 0
+
+    for ky_tu in van_ban:
+        tong += ord(ky_tu)
+
+    return tong % mod
+
+
+# ================= KÝ SỐ =================
+
+def ky_so():
+    try:
+        p = int(entry_p.get())
+        g = int(entry_g.get())
+        x = int(entry_x.get())
+        k = int(entry_k.get())
+
+        van_ban = entry_goc.get()
+
+        if p <= 1 or g <= 0 or x <= 0 or k <= 0 or van_ban == "":
+            raise ValueError
+
+        m = bam_van_ban(van_ban, p - 1)
+
+        r = tinh_luy_thua_mod(g, k, p)
+
+        k_nghich_dao = tim_nghich_dao_mod(k, p - 1)
+
+        s = ((m - x * r) % (p - 1) + (p - 1)) % (p - 1)
+        s = (s * k_nghich_dao) % (p - 1)
+
+        entry_r.config(state="normal")
+        entry_s.config(state="normal")
+
+        entry_r.delete(0, END)
+        entry_s.delete(0, END)
+
+        entry_r.insert(0, str(r))
+        entry_s.insert(0, str(s))
+
+        entry_r.config(state="readonly")
+        entry_s.config(state="readonly")
+
+    except:
+        messagebox.showerror(
+            "Lỗi",
+            "Vui lòng nhập đầy đủ dữ liệu trước khi ký!"
+        )
+
+
+# ================= XÁC MINH =================
+
+def xac_minh():
+    try:
+        p = int(entry_p.get())
+        g = int(entry_g.get())
+        x = int(entry_x.get())
+
+        r = int(entry_r.get())
+        s = int(entry_s.get())
+
+        van_ban = entry_nhan.get()
+
+        y = tinh_luy_thua_mod(g, x, p)
+
+        m_phay = bam_van_ban(van_ban, p - 1)
+
+        v1 = tinh_luy_thua_mod(g, m_phay, p)
+
+        v2 = (
+            tinh_luy_thua_mod(y, r, p)
+            * tinh_luy_thua_mod(r, s, p)
+        ) % p
+
+        entry_v1.config(state="normal")
+        entry_v2.config(state="normal")
+
+        entry_v1.delete(0, END)
+        entry_v2.delete(0, END)
+
+        entry_v1.insert(0, str(v1))
+        entry_v2.insert(0, str(v2))
+
+        entry_v1.config(state="readonly")
+        entry_v2.config(state="readonly")
+
+        if v1 == v2:
+            lbl_ketluan.config(
+                text="KẾT LUẬN: CHỮ KÝ HỢP LỆ!"
+            )
+        else:
+            lbl_ketluan.config(
+                text="KẾT LUẬN: CHỮ KÝ KHÔNG HỢP LỆ!"
+            )
+
+    except:
+        messagebox.showerror(
+            "Lỗi",
+            "Không thể xác minh chữ ký!"
+        )
+# ================= RESET =================
+
+def reset():
+    ds = [
+        entry_p, entry_g, entry_x, entry_k,
+        entry_goc, entry_nhan
+    ]
+
+    for e in ds:
+        e.delete(0, END)
+
+    for e in [entry_r, entry_s, entry_v1, entry_v2]:
+        e.config(state="normal")
+        e.delete(0, END)
+        e.config(state="readonly")
+
+    lbl_ketluan.config(text="KẾT LUẬN: Chưa kiểm tra")
+
+    entry_p.focus()
+
+# ================= GIAO DIỆN =================
+
+root = Tk()
+root.title("PHẦN MỀM THỰC NGHIỆM CHỮ KÝ SỐ ELGAMAL")
+root.geometry("550x550")
+root.configure(bg="#F0F4F8")
+root.resizable(False, False)
+
+FONT_TITLE = ("Arial", 14, "bold")
+FONT_LABEL = ("Arial", 10, "bold")
+FONT_BUTTON = ("Arial", 10, "bold")
+
+# ===== TIÊU ĐỀ =====
+
+Label(
+root,
+text="PHẦN MỀM THỰC NGHIỆM CHỮ KÝ SỐ ELGAMAL",
+bg="#F0F4F8",
+fg="#1E3A8A",
+font=FONT_TITLE
+).place(x=35, y=10)
+
+# ===== THAM SỐ =====
+
+Label(
+root,
+text="Số nguyên tố (p):",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=20, y=60)
+
+entry_p = Entry(root, font=("Arial", 10))
+entry_p.place(x=150, y=60, width=90)
+
+Label(
+root,
+text="Phần tử sinh (g):",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=280, y=60)
+
+entry_g = Entry(root, font=("Arial", 10))
+entry_g.place(x=410, y=60, width=90)
+
+Label(
+root,
+text="Khóa bí mật (x):",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=20, y=100)
+
+entry_x = Entry(root, font=("Arial", 10))
+entry_x.place(x=150, y=100, width=90)
+
+Label(
+root,
+text="Số ngẫu nhiên (k):",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=280, y=100)
+
+entry_k = Entry(root, font=("Arial", 10))
+entry_k.place(x=410, y=100, width=90)
+
+# ===== VĂN BẢN CẦN KÝ =====
+
+Label(
+root,
+text="NỘI DUNG VĂN BẢN CẦN KÝ",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=20, y=145)
+
+entry_goc = Entry(root, font=("Arial", 10))
+entry_goc.place(x=20, y=170, width=480, height=28)
+
+Button(
+root,
+text="THỰC HIỆN KÝ SỐ",
+command=ky_so,
+bg="#2563EB",
+fg="white",
+font=FONT_BUTTON,
+activebackground="#1D4ED8",
+cursor="hand2"
+).place(x=20, y=215, width=480, height=35)
+
+# ===== CHỮ KÝ =====
+
+Label(
+root,
+text="Chữ ký r:",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=20, y=275)
+
+entry_r = Entry(
+root,
+state="readonly",
+font=("Arial", 10)
+)
+entry_r.place(x=100, y=275, width=140)
+
+Label(
+root,
+text="Chữ ký s:",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=280, y=275)
+
+entry_s = Entry(
+root,
+state="readonly",
+font=("Arial", 10)
+)
+entry_s.place(x=360, y=275, width=140)
+
+# ===== VĂN BẢN KIỂM TRA =====
+
+Label(
+root,
+text="VĂN BẢN NHẬN ĐƯỢC ĐỂ KIỂM TRA",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=20, y=320)
+
+entry_nhan = Entry(root, font=("Arial", 10))
+entry_nhan.place(x=20, y=345, width=480, height=28)
+
+Button(
+root,
+text="XÁC MINH CHỮ KÝ",
+command=xac_minh,
+bg="#16A34A",
+fg="white",
+font=FONT_BUTTON,
+activebackground="#15803D",
+cursor="hand2"
+).place(x=20, y=390, width=480, height=35)
+
+# ===== V1 VÀ V2 =====
+
+Label(
+root,
+text="Vế trái V1:",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=20, y=450)
+
+entry_v1 = Entry(
+root,
+state="readonly",
+font=("Arial", 10)
+)
+entry_v1.place(x=110, y=450, width=120)
+
+Label(
+root,
+text="Vế phải V2:",
+bg="#F0F4F8",
+fg="#1F2937",
+font=FONT_LABEL
+).place(x=280, y=450)
+
+entry_v2 = Entry(
+root,
+state="readonly",
+font=("Arial", 10)
+)
+entry_v2.place(x=380, y=450, width=120)
+
+# ===== KẾT LUẬN =====
+
+lbl_ketluan = Label(
+root,
+text="KẾT LUẬN: Chưa kiểm tra",
+bg="#F0F4F8",
+fg="#92400E",
+font=("Arial", 10, "bold")
+)
+
+lbl_ketluan.place(x=20, y=490)
+
+# ===== NÚT RESET =====
+
+Button(
+root,
+text="RESET",
+command=reset,
+bg="#DC2626",
+fg="white",
+font=FONT_BUTTON,
+activebackground="#B91C1C",
+cursor="hand2"
+).place(x=20, y=520, width=480, height=30)
+
+root.mainloop()
