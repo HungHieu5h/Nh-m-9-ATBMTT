@@ -1,0 +1,1813 @@
+# ==========================================================
+# ELGAMAL DIGITAL SIGNATURE SYSTEM
+# Phiên bản nâng cấp cho môn An toàn & Bảo mật thông tin
+# ==========================================================
+
+import tkinter as tk
+from tkinter import *
+from tkinter import ttk
+from tkinter import filedialog
+from tkinter import messagebox
+from tkinter.scrolledtext import ScrolledText
+
+import hashlib
+import random
+import math
+import datetime
+import os
+
+# Hỗ trợ DOCX
+from docx import Document
+# Hỗ trợ PDF
+from PyPDF2 import PdfReader
+# Hỗ trợ xuất báo cáo PDF
+from reportlab.platypus import *
+from reportlab.lib.styles import getSampleStyleSheet
+# ==========================================================
+# BIẾN TOÀN CỤC
+# ==========================================================
+public_key = None
+private_key = None
+signature_r = None
+signature_s = None
+# hash gốc
+signature_hash = ""
+# file chữ ký đã tải
+loaded_signature_file = ""
+# thống kê
+sign_count = 0
+verify_count = 0
+# ==========================================================
+# GHI LOG HỆ THỐNG
+# ==========================================================
+def ghi_log(noi_dung):
+    try:
+        thoi_gian = datetime.datetime.now().strftime(
+            "%H:%M:%S"
+        )   
+        txt_log.insert(
+
+            END,
+            f"[{thoi_gian}] {noi_dung}\n"
+        )
+        txt_log.see(
+            END
+        )
+    except:
+        pass
+# ==========================================================
+# KIỂM TRA NGUYÊN TỐ
+# ==========================================================
+def la_so_nguyen_to(n):
+    if n < 2:
+        return False
+    if n == 2:
+        return True
+    if n % 2 == 0:
+        return False
+    i = 3
+    while i * i <= n:
+        if n % i == 0:
+            return False
+        i += 2
+    return True
+# ==========================================================
+# TÌM ƯỚC CHUNG LỚN NHẤT
+# ==========================================================
+def gcd(a, b):
+    while b != 0:
+        a, b = b, a % b
+    return a
+# ==========================================================
+# LŨY THỪA MOD
+# ==========================================================
+def mod_pow(base, exp, mod):
+    result = 1
+    base %= mod
+    while exp > 0:
+        if exp & 1:
+            result = (result * base) % mod
+        base = (base * base) % mod
+        exp >>= 1
+    return result
+# =========================================================
+# NGHỊCH ĐẢO MOD
+# ==========================================================
+def mod_inverse(a, m):
+    m0 = m
+    x0 = 0
+    x1 = 1
+    if m == 1:
+        return 0
+    while a > 1:
+        q = a // m
+        t = m
+        m = a % m
+        a = t
+        t = x0
+        x0 = x1 - q * x0
+        x1 = t
+    if x1 < 0:
+        x1 += m0
+    return x1
+# ==========================================================
+# SHA256
+# ==========================================================
+def bam_sha256(van_ban):
+    gia_tri_bam = hashlib.sha256(
+        van_ban.encode("utf-8")
+    ).hexdigest()
+    return gia_tri_bam
+# ==========================================================
+# SHA256 -> INT
+# =========================================================
+def bam_sha256_int(van_ban, mod):
+    h = hashlib.sha256(
+        van_ban.encode("utf-8")
+    ).hexdigest()
+    return int(h, 16) % mod
+# ==========================================================
+# SINH NGUYÊN TỐ NGẪU NHIÊN
+# ==========================================================
+def tao_p():
+    while True:
+        p = random.randint(
+            10000,
+            100000
+        )
+        if la_so_nguyen_to(p):
+            entry_p.delete(0, END)
+            entry_p.insert(0, str(p))
+            ghi_log(
+                f"Sinh số nguyên tố p={p}"
+            )
+            return
+# ==========================================================
+# SINH g NGẪU NHIÊN
+# ==========================================================
+def tao_g():
+    try:
+        p = int(entry_p.get())
+
+        while True:
+            g = random.randint(2, p - 2)
+
+            if la_can_nguyen_thuy(g, p):
+                break
+
+        entry_g.delete(0, END)
+        entry_g.insert(0, str(g))
+
+        ghi_log(
+            f"Sinh căn nguyên thủy g = {g}"
+        )
+
+    except:
+        messagebox.showerror(
+            "Lỗi",
+            "Hãy sinh p trước"
+        )
+# ==========================================================
+# KIEM TRA CAN NGUYEN THUY
+# ==========================================================
+def la_can_nguyen_thuy(g, p):
+    phi = p - 1
+    factors = []
+
+    n = phi
+    i = 2
+
+    while i * i <= n:
+        if n % i == 0:
+            factors.append(i)
+            while n % i == 0:
+                n //= i
+        i += 1
+
+    if n > 1:
+        factors.append(n)
+
+    for f in factors:
+        if mod_pow(g, phi // f, p) == 1:
+            return False
+
+    return True      
+# ==========================================================
+# TẠO KHÓA ELGAMAL
+# ==========================================================
+def tao_khoa():
+    global public_key
+    global private_key
+
+    if public_key is not None:
+        answer = messagebox.askyesno(
+            "Thông báo",
+            "Khóa đã tồn tại.\nBạn có muốn tạo lại cặp khóa không?"
+        )
+        if not answer:
+            return
+
+    try:
+        p = int(entry_p.get())
+        g = int(entry_g.get())
+        if not la_so_nguyen_to(p):
+            messagebox.showerror(
+                "Lỗi",
+                "p không phải số nguyên tố"
+            )
+            return
+        if g <= 1 or g >= p:
+            messagebox.showerror(
+                "Lỗi",
+                "g phải thỏa mãn điều kiện 1 < g < p"
+            )
+            return
+        if not la_can_nguyen_thuy(g, p):
+            messagebox.showerror(
+                "Lỗi",
+                "g không phải căn nguyên thủy modulo p"
+            )
+            return
+        x = random.randint(
+            2,
+            p - 2
+        )
+        y = mod_pow(
+            g,
+            x,
+            p
+        )
+        private_key = x
+        public_key = (
+            p,
+            g,
+            y
+        )
+        entry_x.config(state="normal")
+        entry_y.config(state="normal")
+        entry_x.delete(0, END)
+        entry_y.delete(0, END)
+        entry_x.insert(0, str(x))
+        entry_y.insert(0, str(y))
+        entry_x.config(state="readonly")
+        entry_y.config(state="readonly")
+
+        ghi_log(
+            "Tạo cặp khóa ElGamal thành công"
+        )
+
+        messagebox.showinfo(
+            "Thông báo",
+            "Đã tạo cặp khóa thành công"
+        )
+
+    except Exception as e:
+        messagebox.showerror(
+            "Lỗi",
+            str(e)
+        )
+# ==========================================================
+# KIỂM TRA THAM SỐ
+# ==========================================================
+def kiem_tra_tham_so():
+    try:
+        p = int(
+            entry_p.get()
+        )
+        g = int(
+            entry_g.get()
+        )
+        if not la_so_nguyen_to(p):
+            messagebox.showerror(
+                "Lỗi",
+                "p không phải số nguyên tố"
+            )
+            return False
+        if not la_can_nguyen_thuy(g, p):
+            messagebox.showerror(
+                "Lỗi",
+                "g không phải căn nguyên thủy modulo p"
+    )
+        return False
+        return True
+    except:
+        messagebox.showerror(
+            "Lỗi",
+            "Tham số không hợp lệ"
+        )
+        return False
+# ==========================================================
+# LƯU PUBLIC KEY
+# ==========================================================
+def luu_public_key():
+    global public_key
+    if public_key is None:
+        messagebox.showerror(
+            "Lỗi",
+            "Chưa có khóa công khai"
+        )
+        return
+    path = filedialog.asksaveasfilename(
+        defaultextension=".pub",
+        filetypes=[
+            (
+                "Public Key",
+                "*.pub"
+            )
+        ]
+    )
+    if not path:
+        return
+    p, g, y = public_key
+    with open(
+        path,
+        "w",
+        encoding="utf-8"
+    ) as f:
+        f.write(
+            str(p)
+        )
+        f.write("\n")
+        f.write(
+            str(g)
+        )
+        f.write("\n")
+        f.write(
+            str(y)
+        )
+    ghi_log(
+
+        "Đã lưu Public Key"
+    )
+# ==========================================================
+# TẢI PUBLIC KEY
+# ==========================================================
+def tai_public_key():
+    global public_key
+    path = filedialog.askopenfilename(
+        filetypes=[
+            (
+                "Public Key",
+                "*.pub"
+            )
+        ]
+    )
+    if not path:
+        return
+    with open(
+        path,
+        "r",
+        encoding="utf-8"
+    ) as f:
+        lines = f.readlines()
+    p = int(
+        lines[0].strip()
+    )
+    g = int(
+        lines[1].strip()
+    )
+    y = int(
+        lines[2].strip()
+    )
+    public_key = (
+        p,
+        g,
+        y
+    )
+    ghi_log(
+        "Đã tải Public Key"
+    )
+# ==========================================================
+# LƯU PRIVATE KEY
+# =========================================================
+def luu_private_key():
+    global private_key
+    if private_key is None:
+        messagebox.showerror(
+            "Lỗi",
+            "Chưa có khóa bí mật"
+        )
+        return
+    path = filedialog.asksaveasfilename(
+        defaultextension=".pri",
+        filetypes=[
+            (
+                "Private Key",
+                "*.pri"
+            )
+        ]
+    )
+    if not path:
+        return
+    with open(
+        path,
+        "w",
+        encoding="utf-8"
+    ) as f:
+        f.write(
+            str(private_key)
+        )
+    ghi_log(
+        "Đã lưu Private Key"
+    )
+    messagebox.showinfo(
+        "Thông báo",
+        "Lưu Private Key thành công"
+    )
+# ==========================================================
+# TẢI PRIVATE KEY
+# ==========================================================
+def tai_private_key():
+    global private_key
+    path = filedialog.askopenfilename(
+        filetypes=[
+            (
+                "Private Key",
+                "*.pri"
+            )
+        ]
+    )
+    if not path:
+        return
+    with open(
+        path,
+        "r",
+        encoding="utf-8"
+    ) as f:
+        private_key = int(
+            f.read()
+        )
+    entry_x.config(
+        state="normal"
+    )
+    entry_x.delete(
+        0,
+        END
+    )
+    entry_x.insert(
+        0,
+        str(private_key)
+    )
+    entry_x.config(
+        state="readonly"
+    )
+    ghi_log(
+        "Đã tải Private Key"
+    )
+    messagebox.showinfo(
+        "Thông báo",
+        "Tải Private Key thành công"
+    )
+# ==========================================================
+# PHÁT SINH CHỮ KÝ
+# ==========================================================
+# ==========================================================
+# ĐỌC FILE TXT
+# ==========================================================
+def doc_txt(file_path):
+    with open(
+        file_path,
+        "r",
+        encoding="utf-8"
+    ) as f:
+        return f.read()
+# ==========================================================
+# ĐỌC FILE DOCX
+# ==========================================================
+def doc_docx(file_path):
+    doc = Document(
+        file_path
+    )
+    noi_dung = ""
+    for para in doc.paragraphs:
+        noi_dung += para.text
+        noi_dung += "\n"
+    return noi_dung
+# ==========================================================
+# ĐỌC FILE PDF
+# ==========================================================
+def doc_pdf(file_path):
+    reader = PdfReader(
+        file_path
+    )
+    noi_dung = ""
+    for page in reader.pages:
+        text = page.extract_text()
+        if text:
+            noi_dung += text
+            noi_dung += "\n"
+    return noi_dung
+# ==========================================================
+# TẢI FILE VĂN BẢN
+# ==========================================================
+def tai_file_van_ban():
+    try:
+        file_path = filedialog.askopenfilename(
+            title="Chọn file văn bản",
+            filetypes=[
+                (
+                    "All Supported Files",
+                    "*.txt *.docx *.pdf *.rtf"
+                ),
+                (
+                    "Text File",
+                    "*.txt"
+                ),
+                (
+                    "Word File",
+                    "*.docx"
+                ),
+                (
+                    "PDF File",
+                    "*.pdf"
+                ),
+                (
+                    "RTF File",
+                    "*.rtf"
+                )
+            ]
+        )
+        if not file_path:
+            return
+        ext = os.path.splitext(
+            file_path
+        )[1].lower()
+        noi_dung = ""
+        if ext == ".txt":
+            noi_dung = doc_txt(
+                file_path
+            )
+        elif ext == ".docx":
+            noi_dung = doc_docx(
+                file_path
+            )
+        elif ext == ".pdf":
+            noi_dung = doc_pdf(
+                file_path
+            )
+        elif ext == ".rtf":
+            noi_dung = doc_txt(
+                file_path
+            )
+        txt_vanban.delete(
+            "1.0",
+            END
+        )
+        txt_vanban.insert(
+            END,
+            noi_dung
+        )
+        ghi_log(
+
+            f"Tải file {os.path.basename(file_path)}"
+        )
+    except Exception as e:
+        messagebox.showerror(
+            "Lỗi",
+            str(e)
+        )
+# ==========================================================
+# LƯU FILE VĂN BẢN
+# ==========================================================
+def luu_file_van_ban():
+    try:
+        noi_dung = txt_vanban.get(
+            "1.0",
+            END
+        )
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[
+                (
+                    "Text File",
+                    "*.txt"
+                ),
+                (
+                    "Word File",
+                    "*.docx"
+                )
+            ]
+        )
+        if not file_path:
+            return
+        ext = os.path.splitext(
+            file_path
+        )[1].lower()
+        if ext == ".txt":
+            with open(
+                file_path,
+                "w",
+                encoding="utf-8"
+            ) as f:
+                f.write(
+                    noi_dung
+                )
+        elif ext == ".docx":
+            doc = Document()
+            doc.add_paragraph(
+                noi_dung
+            )
+            doc.save(
+                file_path
+            )
+        ghi_log(
+            f"Lưu file {os.path.basename(file_path)}"
+        )
+        messagebox.showinfo(
+            "Thông báo",
+            "Lưu file thành công"
+        )
+    except Exception as e:
+        messagebox.showerror(
+            "Lỗi",
+            str(e)
+
+        )
+# ==========================================================
+# HIỂN THỊ HASH SHA256
+# ==========================================================
+def hien_thi_hash(hash_value):
+    txt_hash.config(
+        state="normal"
+    )
+    txt_hash.delete(
+        "1.0",
+        END
+    )
+    txt_hash.insert(
+        END,
+        hash_value
+    )
+    txt_hash.config(
+        state="disabled"
+    )
+    ghi_log(
+        "Đã tạo giá trị băm SHA256"
+    )
+# ==========================================================
+# KÝ SỐ ELGAMAL
+# ==========================================================
+def ky_so():
+    global signature_r
+    global signature_s
+    global signature_hash
+    signature_hash
+    try:
+        van_ban = txt_vanban.get(
+            "1.0",
+            END
+        ).strip()
+        if van_ban == "":
+            messagebox.showerror(
+                "Lỗi",
+                "Chưa có văn bản"
+            )
+            return
+        p, g, y = public_key
+        x = private_key
+        m = bam_sha256_int(
+            van_ban,
+            p - 1
+        )
+        hash_value = bam_sha256(
+            van_ban
+        )
+        hien_thi_hash(
+            hash_value
+        )
+        while True:
+            k = random.randint(
+                2,
+                p - 2
+            )
+            if gcd(
+                k,
+                p - 1
+            ) == 1:
+                break
+        r = mod_pow(
+            g,
+            k,
+            p
+        )
+        k_inverse = mod_inverse(
+            k,
+            p - 1
+        )
+        s = (
+            k_inverse *
+            (
+                m -
+                x * r
+            )
+        ) % (
+            p - 1
+        )
+        signature_r = r
+        signature_s = s
+        signature_hash = hash_value
+        entry_r.config(
+            state="normal"
+        )
+        entry_s.config(
+            state="normal"
+        )
+        entry_r.delete(
+            0,
+            END
+        )
+        entry_s.delete(
+            0,
+            END
+        )
+        entry_r.insert(
+            0,
+            str(r)
+        )
+        entry_s.insert(
+            0,
+            str(s)
+        )
+        entry_r.config(
+            state="readonly"
+        )
+        entry_s.config(
+            state="readonly"
+        )
+        ghi_log(
+            "Ký số thành công"
+        )
+        messagebox.showinfo(
+            "Thông báo",
+            "Đã tạo chữ ký điện tử"
+        )
+    except Exception as e:
+        messagebox.showerror(
+            "Lỗi",
+            str(e)
+     )
+# ==========================================================
+# LƯU CHỮ KÝ
+# ==========================================================
+def luu_chu_ky():
+    global signature_r
+    global signature_s
+    global signature_hash
+    try:
+        if signature_r is None:
+            messagebox.showerror(
+                "Lỗi",
+                "Chưa có chữ ký"
+            )
+            return
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".sig",
+            filetypes=[
+                (
+                    "Signature File",
+                    "*.sig"
+                )
+            ]
+        )
+        if not file_path:
+            return
+        with open(
+            file_path,
+            "w",
+            encoding="utf-8"
+        ) as f:
+            f.write(
+                str(signature_r)
+            )
+            f.write("\n")
+            f.write(
+                str(signature_s)
+            )
+            f.write("\n")
+            f.write(
+                signature_hash
+            )
+        ghi_log(
+            "Lưu chữ ký thành công"
+        )
+        messagebox.showinfo(
+            "Thông báo",
+            "Đã lưu chữ ký"
+        )
+    except Exception as e:
+        messagebox.showerror(
+            "Lỗi",
+            str(e)
+        )
+# ==========================================================
+# TẢI CHỮ KÝ
+# ==========================================================
+
+def tai_chu_ky():
+    global signature_r
+    global signature_s
+    global signature_hash
+    global loaded_signature_file
+    try:
+        file_path = filedialog.askopenfilename(
+            title="Chọn file chữ ký",
+            filetypes=[
+                (
+                    "Signature File",
+                    "*.sig"
+                )
+            ]
+        )
+        if not file_path:
+            return
+        with open(
+            file_path,
+            "r",
+            encoding="utf-8"
+        ) as f:
+            lines = f.readlines()
+        signature_r = int(
+            lines[0].strip()
+        )
+        signature_s = int(
+            lines[1].strip()
+        )
+        signature_hash = lines[2].strip()
+        loaded_signature_file = file_path
+        entry_verify_r.config(
+            state="normal"
+        )
+        entry_verify_s.config(
+            state="normal"
+        )
+        entry_verify_r.delete(
+            0,
+            END
+        )
+        entry_verify_s.delete(
+            0,
+            END
+        )
+        entry_verify_r.insert(
+            0,
+            str(signature_r)
+        )
+        entry_verify_s.insert(
+            0,
+            str(signature_s)
+        )
+        entry_verify_r.config(
+            state="readonly"
+        )
+        entry_verify_s.config(
+            state="readonly"
+        )
+        ghi_log(
+
+            "Tải chữ ký thành công"
+        )
+
+        messagebox.showinfo(
+            "Thông báo",
+            "Đã tải chữ ký"
+        )
+    except Exception as e:
+        messagebox.showerror(
+            "Lỗi",
+            str(e)
+        )
+# ==========================================================
+# TẢI FILE XÁC MINH
+# ==========================================================
+def tai_file_xac_minh():
+    try:
+        file_path = filedialog.askopenfilename(
+            title="Chọn file văn bản",
+            filetypes=[
+                (
+                    "All Supported Files",
+                    "*.txt *.docx *.pdf *.rtf"
+                ),
+                (
+                    "Text File",
+                    "*.txt"
+                ),
+                (
+                    "Word File",
+                    "*.docx"
+                ),
+                (
+                    "PDF File",
+                    "*.pdf"
+                ),
+                (
+                    "RTF File",
+                    "*.rtf"
+                )
+            ]
+        )
+        if not file_path:
+            return
+        ext = os.path.splitext(
+            file_path
+        )[1].lower()
+        noi_dung = ""
+        if ext == ".txt":
+            noi_dung = doc_txt(
+                file_path
+            )
+        elif ext == ".docx":
+            noi_dung = doc_docx(
+                file_path
+            )
+        elif ext == ".pdf":
+            noi_dung = doc_pdf(
+                file_path
+            )
+        elif ext == ".rtf":
+            noi_dung = doc_txt(
+                file_path
+            )
+        txt_verify.delete(
+            "1.0",
+            END
+        )
+        txt_verify.insert(
+            END,
+            noi_dung
+        )
+        ghi_log(
+            f"Tải file xác minh {os.path.basename(file_path)}"
+        )
+    except Exception as e:
+        messagebox.showerror(
+            "Lỗi",
+            str(e)
+        )
+# ==========================================================
+# XÁC MINH CHỮ KÝ
+# ==========================================================
+def xac_minh():
+    try:
+        if public_key is None:
+            messagebox.showerror(
+                "Lỗi",
+                "Chưa có khóa công khai"
+            )
+            return
+        if signature_r is None:
+            messagebox.showerror(
+                "Lỗi",
+                "Chưa tải chữ ký"
+            )
+            return
+        van_ban = txt_verify.get(
+            "1.0",
+            END
+        ).strip()
+        if len(van_ban) == 0:
+            messagebox.showerror(
+                "Lỗi",
+                "Chưa có văn bản kiểm tra"
+            )
+            return
+        p, g, y = public_key
+        r = signature_r
+        s = signature_s
+        m = bam_sha256_int(
+            van_ban,
+            p - 1
+        )
+        hash_hien_tai = bam_sha256(
+            van_ban
+        )
+        V1 = (
+            mod_pow(
+                y,
+                r,
+                p
+            )
+            *
+            mod_pow(
+                r,
+                s,
+                p
+            )
+        ) % p
+        V2 = mod_pow(
+            g,
+            m,
+            p
+        )
+        chu_ky_hop_le = (
+            V1 == V2
+
+        )
+        hash_hop_le = (
+            hash_hien_tai == signature_hash
+
+        )
+        if chu_ky_hop_le and hash_hop_le:
+            ket_qua = "✓ Chữ ký hợp lệ"
+        elif chu_ky_hop_le and not hash_hop_le:
+            ket_qua = "✗ Văn bản đã bị sửa"
+        elif not chu_ky_hop_le and hash_hop_le:
+            ket_qua = "✗ Chữ ký đã bị sửa"
+        else:
+            ket_qua = "✗ Văn bản và chữ ký đều đã bị thay đổi"
+        lbl_verify_result.config(
+            text=ket_qua
+        )
+        ghi_log(
+            ket_qua
+        )
+        messagebox.showinfo(
+            "Kết quả xác minh",
+            ket_qua
+        )
+    except Exception as e:
+        messagebox.showerror(
+            "Lỗi",
+            str(e)
+        )
+# ==========================================================
+# RESET CHƯƠNG TRÌNH
+# ==========================================================
+def reset():
+    global public_key
+    global private_key
+    global signature_r
+    global signature_s
+    global signature_hash
+    public_key = None
+    private_key = None
+    signature_r = None
+    signature_s = None
+    signature_hash = None
+    entry_p.delete(
+        0,
+        END
+    )
+    entry_g.delete(
+        0,
+        END
+    )
+    entry_x.config(
+        state="normal"
+    )
+    entry_x.delete(
+        0,
+        END
+    )
+    entry_x.config(
+        state="readonly"
+    )
+    entry_y.config(
+        state="normal"
+    )
+    entry_y.delete(
+        0,
+        END
+    )
+    entry_y.config(
+        state="readonly"
+    )
+    entry_r.config(
+        state="normal"
+    )
+    entry_r.delete(
+        0,
+        END
+    )
+    entry_r.config(
+        state="readonly"
+    )
+    entry_s.config(
+        state="normal"
+    )
+    entry_s.delete(
+        0,
+        END
+    )
+    entry_s.config(
+        state="readonly"
+    )
+    txt_vanban.delete(
+        "1.0",
+        END
+    )
+    txt_verify.delete(
+        "1.0",
+        END
+    )
+    txt_hash.config(
+        state="normal"
+    )
+    txt_hash.delete(
+        "1.0",
+        END
+    )
+    txt_hash.config(
+        state="disabled"
+    )
+    lbl_verify_result.config(
+        text=""
+    )
+    ghi_log(
+        "Đã reset chương trình"
+    )
+    messagebox.showinfo(
+        "Thông báo",
+        "Đã reset chương trình"
+    )
+# ==========================================================
+# THÔNG TIN CHƯƠNG TRÌNH
+# ==========================================================
+def thong_tin_chuong_trinh():
+    messagebox.showinfo(
+        "Thông tin chương trình",
+        "Ứng dụng minh họa chữ ký điện tử ElGamal\n\n"
+        "Môn học: An toàn và Bảo mật thông tin\n\n"
+        "Nhóm: 9\n\n"
+        "Thuật toán sử dụng:\n"
+        "- SHA256\n"
+        "- ElGamal Digital Signature\n\n"
+        "Chức năng:\n"
+        "✓ Tạo khóa tự động\n"
+        "✓ Ký số văn bản\n"
+        "✓ Lưu/Tải khóa\n"
+        "✓ Lưu/Tải chữ ký\n"
+        "✓ Hỗ trợ TXT, DOCX, PDF, RTF\n"
+        "✓ Kiểm tra chữ ký\n"
+        "✓ Phát hiện sửa văn bản hoặc chữ ký"
+    )
+# ==========================================================
+# MENU
+# ==========================================================
+root = Tk()
+menu_bar = Menu(
+    root 
+)
+root.config(
+    menu=menu_bar
+)
+# ================= FILE =================
+menu_file = Menu(
+    menu_bar,
+    tearoff=0
+)
+
+menu_bar.add_cascade(
+    label="File",
+    menu=menu_file
+)
+menu_file.add_command(
+    label="Reset",
+    command=reset
+)
+menu_file.add_separator()
+menu_file.add_command(
+    label="Thoát",
+    command=root.quit
+)
+# ================= CÔNG CỤ =================
+menu_tool = Menu(
+    menu_bar,
+    tearoff=0
+)
+menu_bar.add_cascade(
+    label="Công cụ",
+    menu=menu_tool
+)
+menu_tool.add_command(
+    label="Tạo khóa",
+    command=tao_khoa
+)
+menu_tool.add_command(
+    label="Ký số",
+    command=ky_so
+)
+menu_tool.add_command(
+    label="Xác minh",
+    command=xac_minh
+)
+# ================= TRỢ GIÚP =================
+menu_help = Menu(
+    menu_bar,
+    tearoff=0
+)
+menu_bar.add_cascade(
+    label="Trợ giúp",
+    menu=menu_help
+)
+menu_help.add_command(
+    label="Thông tin chương trình",
+    command=thong_tin_chuong_trinh
+)
+# ==========================================================
+# GIAO DIỆN
+# ==========================================================
+root.title(
+    "ỨNG DỤNG MINH HỌA CHỮ KÝ ĐIỆN TỬ ELGAMAL"
+)
+root.geometry(
+    "1800x900"
+)
+root.configure(
+    bg="#F0F8FF"
+
+)
+root.grid_columnconfigure(
+    0,
+    weight=1
+)
+root.grid_columnconfigure(
+    1,
+    weight=1
+)
+root.grid_columnconfigure(
+    2,
+    weight=1
+)
+root.grid_rowconfigure(
+    1,
+    weight=1
+)
+# ==========================================================
+# FRAME TẠO KHÓA
+# ==========================================================
+frame_left = LabelFrame(
+    root,
+    text="TẠO KHÓA ELGAMAL",
+    font=(
+        "Times New Roman",
+        12,
+        "bold"
+    ),
+    padx=10,
+    pady=10,
+    bg="white"
+)
+frame_left.grid(
+    row=0,
+    column=0,
+    padx=10,
+    pady=10,
+    sticky="n"
+)
+# ==========================================================
+# FRAME PHÁT SINH CHỮ KÝ
+# ==========================================================
+frame_center = LabelFrame(
+    root,
+    text="PHÁT SINH CHỮ KÝ",
+    font=(
+        "Times New Roman",
+        12,
+        "bold"
+    ),
+    padx=10,
+    pady=10,
+    bg="white"
+)
+frame_center.grid(
+    row=0,
+    column=1,
+    padx=10,
+    pady=10,
+    sticky="nsew"
+)
+# ==========================================================
+# FRAME KIỂM TRA CHỮ KÝ
+# ==========================================================
+frame_right = LabelFrame(
+    root,
+    text="KIỂM TRA CHỮ KÝ",
+    font=(
+        "Times New Roman",
+        12,
+        "bold"
+    ),
+    padx=10,
+    pady=10,
+    bg="white"
+)
+frame_right.grid(
+    row=0,
+    column=2,
+    padx=10,
+    pady=10,
+    sticky="nsew"
+)
+# ==========================================================
+# FRAME NHẬT KÝ HỆ THỐNG
+# ==========================================================
+frame_log = LabelFrame(
+    root,
+    text="NHẬT KÝ HỆ THỐNG",
+    font=(
+        "Times New Roman",
+        12,
+        "bold"
+    ),
+    padx=10,
+    pady=10,
+    bg="white"
+)
+frame_log.grid(
+    row=1,
+    column=0,
+    columnspan=3,
+    padx=10,
+    pady=10,
+    sticky="nsew"
+)
+# ==========================================================
+# p
+# ==========================================================
+Label(
+    frame_left,
+    text="p"
+).grid(
+    row=0,
+    column=0,
+    padx=5,
+    pady=5
+)
+entry_p = Entry(
+    frame_left,
+    width=16
+)
+entry_p.grid(
+    row=0,
+    column=1,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_left,
+    text="Sinh p",
+    command=tao_p,
+    bg="#4F46E5",
+    fg="white"
+).grid(
+    row=0,
+    column=2,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# g
+# ==========================================================
+Label(
+    frame_left,
+    text="g"
+).grid(
+    row=1,
+    column=0,
+    padx=5,
+    pady=5
+)
+entry_g = Entry(
+    frame_left,
+    width=16
+)
+entry_g.grid(
+    row=1,
+    column=1,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_left,
+    text="Sinh g",
+    command=tao_g,
+    bg="#4F46E5",
+    fg="white"
+).grid(
+    row=1,
+    column=2,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# x
+# ==========================================================
+Label(
+    frame_left,
+    text="Khóa bí mật x"
+).grid(
+    row=2,
+    column=0,
+    padx=5,
+    pady=5
+)
+entry_x = Entry(
+    frame_left,
+    width=25,
+    state="readonly"
+)
+entry_x.grid(
+    row=2,
+    column=1,
+    columnspan=2,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# y
+# ==========================================================
+Label(
+    frame_left,
+    text="Khóa công khai y"
+).grid(
+    row=3,
+    column=0,
+    padx=5,
+    pady=5
+)
+entry_y = Entry(
+    frame_left,
+    width=25,
+    state="readonly"
+)
+entry_y.grid(
+    row=3,
+    column=1,
+    columnspan=2,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# CÁC NÚT QUẢN LÝ KHÓA
+# ==========================================================
+Button(
+    frame_left,
+    text="Tạo khóa",
+    command=tao_khoa,
+    bg="#16A34A",
+    fg="white",
+    width=12
+).grid(
+    row=4,
+    column=0,
+    columnspan=3,
+    pady=10
+)
+Button(
+    frame_left,
+    text="Lưu Public Key",
+    command=luu_public_key,
+    width=14
+).grid(
+    row=5,
+    column=0,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_left,
+    text="Tải Public Key",
+    command=tai_public_key,
+    width=14
+).grid(
+    row=5,
+    column=1,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_left,
+    text="Lưu Private Key",
+    command=luu_private_key,
+    width=14
+).grid(
+    row=6,
+    column=0,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_left,
+    text="Tải Private Key",
+    command=tai_private_key,
+    width=14
+).grid(
+    row=6,
+    column=1,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# CÁC NÚT
+# ==========================================================
+Button(
+    frame_center,
+    text="Tải File",
+    command=tai_file_van_ban
+).grid(
+    row=0,
+    column=0,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_center,
+    text="Lưu File",
+    command=luu_file_van_ban
+).grid(
+    row=0,
+    column=1,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_center,
+    text="Ký số",
+    command=ky_so,
+    bg="#2563EB",
+    fg="white"
+).grid(
+    row=0,
+    column=2,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_center,
+    text="Lưu chữ ký",
+    command=luu_chu_ky,
+    bg="#16A34A",
+    fg="white"
+).grid(
+    row=0,
+    column=3,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# VĂN BẢN CẦN KÝ
+# ==========================================================
+Label(
+    frame_center,
+    text="Văn bản cần ký"
+).grid(
+    row=1,
+    column=0,
+    sticky="w",
+    pady=5
+)
+txt_vanban = ScrolledText(
+    frame_center,
+    width=50,
+    height=12
+)
+txt_vanban.grid(
+    row=2,
+    column=0,
+    columnspan=4,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# HASH SHA256
+# ==========================================================
+Label(
+    frame_center,
+    text="SHA256"
+).grid(
+    row=3,
+    column=0,
+    sticky="w"
+)
+txt_hash = Text(
+    frame_center,
+    width=50,
+    height=4,
+    state="disabled"
+)
+txt_hash.grid(
+    row=4,
+    column=0,
+    columnspan=4,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# r
+# ==========================================================
+Label(
+    frame_center,
+    text="r"
+).grid(
+    row=5,
+    column=0
+)
+entry_r = Entry(
+    frame_center,
+    width=20,
+    state="readonly"
+)
+entry_r.grid(
+    row=5,
+    column=1,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# s
+# ==========================================================
+Label(
+    frame_center,
+    text="s"
+).grid(
+    row=5,
+    column=2
+)
+entry_s = Entry(
+    frame_center,
+    width=20,
+    state="readonly"
+)
+entry_s.grid(
+    row=5,
+    column=3,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# CÁC NÚT XÁC MINH
+# ==========================================================
+Button(
+    frame_right,
+    text="Tải chữ ký",
+    command=tai_chu_ky
+).grid(
+    row=0,
+    column=0,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_right,
+    text="Tải văn bản",
+    command=tai_file_xac_minh
+).grid(
+    row=0,
+    column=1,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_right,
+    text="Xác minh",
+    command=xac_minh,
+    bg="#16A34A",
+    fg="white"
+).grid(
+    row=0,
+    column=2,
+    padx=5,
+    pady=5
+)
+Button(
+    frame_right,
+    text="Reset",
+    command=reset,
+    bg="#DC2626",
+    fg="white"
+).grid(
+    row=0,
+    column=3,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# VĂN BẢN XÁC MINH
+# ==========================================================
+Label(
+    frame_right,
+    text="Văn bản kiểm tra"
+).grid(
+    row=1,
+    column=0,
+    sticky="w"
+)
+txt_verify = ScrolledText(
+    frame_right,
+    width=50,
+    height=12
+)
+txt_verify.grid(
+    row=2,
+    column=0,
+    columnspan=4,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# r
+# ==========================================================
+Label(
+    frame_right,
+    text="r"
+).grid(
+    row=3,
+    column=0
+)
+entry_verify_r = Entry(
+    frame_right,
+    width=20,
+    state="readonly"
+)
+entry_verify_r.grid(
+    row=3,
+    column=1,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# s
+# ==========================================================
+Label(
+    frame_right,
+    text="s"
+).grid(
+    row=3,
+    column=2
+)
+entry_verify_s = Entry(
+    frame_right,
+    width=20,
+    state="readonly"
+)
+entry_verify_s.grid(
+    row=3,
+    column=3,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# KẾT QUẢ XÁC MINH
+# ==========================================================
+lbl_verify_result = Label(
+    frame_right,
+    text="Chưa xác minh",
+    fg="blue",
+    font=(
+        "Times New Roman",
+        12,
+        "bold"
+    )
+)
+
+lbl_verify_result.grid(
+    row=4,
+    column=0,
+    columnspan=4,
+    pady=15
+)
+# ==========================================================
+# NHẬT KÝ HỆ THỐNG
+# ==========================================================
+txt_log = ScrolledText(
+    frame_log,
+    width=180,
+    height=10,
+    font=(
+        "Consolas",
+        10
+    )
+)
+txt_log.pack(
+    fill="both",
+    expand=True,
+    padx=5,
+    pady=5
+)
+# ==========================================================
+# STATUS BAR
+# ==========================================================
+status_bar = Label(
+    root,
+    text="Sẵn sàng",
+    bd=1,
+    relief=SUNKEN,
+    anchor=W,
+    bg="#E5E7EB"
+)
+status_bar.grid(
+    row=2,
+    column=0,
+    columnspan=3,
+    sticky="we"
+)
+# ==========================================================
+# KHỞI ĐỘNG HỆ THỐNG
+# ==========================================================
+ghi_log(
+    "Khởi động hệ thống"
+)
+# MAIN LOOP
+# ==========================================================
+root.mainloop()
